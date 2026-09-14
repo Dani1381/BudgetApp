@@ -29,8 +29,17 @@ jobs:
 
       - name: Build with Gradle
         run: |
-          gradle assembleDebug --stacktrace
-        continue-on-error: false
+          gradle assembleDebug --stacktrace > build_error.txt 2>&1
+
+      - name: Upload Error Log Branch
+        if: failure()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git checkout -B build-log
+          git add build_error.txt
+          git commit -m "Build error log"
+          git push -f origin build-log
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
