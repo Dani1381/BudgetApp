@@ -25,9 +25,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.5'
+          cache-disabled: true
 
       - name: Build with Gradle
-        run: gradle assembleDebug
+        run: |
+          gradle assembleDebug --stacktrace
+        continue-on-error: false
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
