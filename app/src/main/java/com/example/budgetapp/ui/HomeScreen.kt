@@ -7,7 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,8 +18,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.budgetapp.ai.GeminiAiService
 import com.example.budgetapp.data.Transaction
 import com.example.budgetapp.viewmodel.BudgetViewModel
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -29,13 +33,28 @@ fun HomeScreen(viewModel: BudgetViewModel) {
     val totalIncome by viewModel.totalIncome.collectAsState()
     val totalExpense by viewModel.totalExpense.collectAsState()
     val balance = totalIncome - totalExpense
+    val coroutineScope = rememberCoroutineScope()
 
     var showDialog by remember { mutableStateOf(false) }
+    var showAiAdvisorDialog by remember { mutableStateOf(false) }
+    var showAiSmartEntryDialog by remember { mutableStateOf(false) }
+
+    var aiAdviceText by remember { mutableStateOf("") }
+    var isAiLoading by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("مدیریت بودجه و حساب کتاب") },
+                title = { Text("مدیریت بودجه هوشمند") },
+                actions = {
+                    IconButton(onClick = { showAiSmartEntryDialog = true }) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "ثبت هوشمند با جمینای",
+                            tint = Color(0xFF673AB7)
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -43,8 +62,34 @@ fun HomeScreen(viewModel: BudgetViewModel) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "افزودن تراکنش")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        showAiAdvisorDialog = true
+                        isAiLoading = true
+                        aiAdviceText = "در حال تحلیل حساب‌ها توسط جمینای..."
+                        coroutineScope.launch {
+                            val recentSummaries = transactions.take(6).map {
+                                "${it.title}: ${it.amount.toLong()} تومان (${if (it.isIncome) "درآمد" else "هزینه"})"
+                            }
+                            aiAdviceText = GeminiAiService.getFinancialAdvice(
+                                balance, totalIncome, totalExpense, recentSummaries
+                            )
+                            isAiLoading = false
+                        }
+                    },
+                    icon = { Icon(Icons.Default.Psychology, contentDescription = null) },
+                    text = { Text("مشاور هوش مصنوعی") },
+                    containerColor = Color(0xFF673AB7),
+                    contentColor = Color.White
+                )
+
+                FloatingActionButton(
+                    onClick = { showDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "افزودن تراکنش")
+                }
             }
         }
     ) { innerPadding ->
@@ -57,14 +102,14 @@ fun HomeScreen(viewModel: BudgetViewModel) {
             // Summary Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "موجودی کل", style = MaterialTheme.typography.titleMedium)
+                    Text(text = "موجودی کل حساب", style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = "${formatAmount(balance)} تومان",
                         style = MaterialTheme.typography.headlineLarge,
@@ -77,18 +122,18 @@ fun HomeScreen(viewModel: BudgetViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "درآمد", color = Color(0xFF2E7D32))
+                            Text(text = "کل دریافتی", color = Color(0xFF2E7D32))
                             Text(
                                 text = "+${formatAmount(totalIncome)}",
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2E7D32)
                             )
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "هزینه", color = Color(0xFFC62828))
+                            Text(text = "کل مخارج", color = Color(0xFFC62828))
                             Text(
                                 text = "-${formatAmount(totalExpense)}",
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 color = Color(0xFFC62828)
                             )
                         }
@@ -98,13 +143,25 @@ fun HomeScreen(viewModel: BudgetViewModel) {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "تراکنش‌های اخیر",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "تراکنش‌های اخیر و پیامک‌ها",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "ثبت خودکار فعال ⚡",
+                    fontSize = 12.sp,
+                    color = Color(0xFF2E7D32),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (transactions.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -113,7 +170,7 @@ fun HomeScreen(viewModel: BudgetViewModel) {
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(transactions) { item ->
                         TransactionItem(
@@ -134,6 +191,53 @@ fun HomeScreen(viewModel: BudgetViewModel) {
                 }
             )
         }
+
+        if (showAiAdvisorDialog) {
+            AlertDialog(
+                onDismissRequest = { showAiAdvisorDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Psychology, contentDescription = null, tint = Color(0xFF673AB7))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("تحلیل هوشمند جمینای AI")
+                    }
+                },
+                text = {
+                    if (isAiLoading) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFF673AB7))
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(aiAdviceText, fontSize = 14.sp)
+                        }
+                    } else {
+                        Text(aiAdviceText, fontSize = 14.sp, lineHeight = 22.sp)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { showAiAdvisorDialog = false }) {
+                        Text("متشکرم")
+                    }
+                }
+            )
+        }
+
+        if (showAiSmartEntryDialog) {
+            AiSmartEntryDialog(
+                onDismiss = { showAiSmartEntryDialog = false },
+                onParsed = { parsed ->
+                    viewModel.addTransaction(
+                        parsed.title,
+                        parsed.amount,
+                        parsed.category,
+                        parsed.isIncome
+                    )
+                    showAiSmartEntryDialog = false
+                }
+            )
+        }
     }
 }
 
@@ -141,17 +245,17 @@ fun HomeScreen(viewModel: BudgetViewModel) {
 fun TransactionItem(transaction: Transaction, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
-                Text(text = transaction.title, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = transaction.title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Text(
                     text = "${transaction.category} • ${formatDate(transaction.date)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -179,6 +283,76 @@ fun TransactionItem(transaction: Transaction, onDelete: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun AiSmartEntryDialog(
+    onDismiss: () -> Unit,
+    onParsed: (com.example.budgetapp.ai.ParsedAiExpense) -> Unit
+) {
+    var naturalText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF673AB7))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("ثبت با زبان عامیانه (Gemini AI)")
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "هرچی خرج کردی رو همینجوری راحت بنویس؛ جمینای خودش مبالغ و دسته‌بندی رو درمیاره!",
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
+                OutlinedTextField(
+                    value = naturalText,
+                    onValueChange = { naturalText = it },
+                    placeholder = { Text("مثلا: امروز ۱۸۰ تومن پول اسنپ دادم") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isLoading) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Color(0xFF673AB7))
+                }
+                if (errorMessage.isNotBlank()) {
+                    Text(errorMessage, color = Color.Red, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (naturalText.isNotBlank()) {
+                        isLoading = true
+                        errorMessage = ""
+                        coroutineScope.launch {
+                            val parsed = GeminiAiService.parseExpenseFromText(naturalText)
+                            isLoading = false
+                            if (parsed != null) {
+                                onParsed(parsed)
+                            } else {
+                                errorMessage = "نتونستم مبلغ رو تشخیص بدم، لطفاً متن رو واضح‌تر بنویسید."
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text("ثبت هوشمند")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("انصراف")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun AddTransactionDialog(
     onDismiss: () -> Unit,
     onConfirm: (title: String, amount: Double, category: String, isIncome: Boolean) -> Unit
@@ -190,7 +364,7 @@ fun AddTransactionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "افزودن تراکنش جدید") },
+        title = { Text(text = "افزودن دستی تراکنش") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -209,7 +383,7 @@ fun AddTransactionDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("عنوان (مثلا خرید میوه یا حقوق)") },
+                    label = { Text("عنوان") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -221,7 +395,7 @@ fun AddTransactionDialog(
                 OutlinedTextField(
                     value = category,
                     onValueChange = { category = it },
-                    label = { Text("دسته‌بندی (مثلا خوراک، مسکن، حقوق)") },
+                    label = { Text("دسته‌بندی") },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
