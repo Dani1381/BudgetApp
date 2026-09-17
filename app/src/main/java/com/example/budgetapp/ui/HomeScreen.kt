@@ -44,7 +44,6 @@ fun HomeScreen(
     val totalExpense by viewModel.totalExpense.collectAsState()
     val totalCardsBalance by viewModel.totalCardsBalance.collectAsState()
 
-    // Effective Net Balance: if cards have balance, sum of cards; otherwise totalIncome - totalExpense
     val totalNetWorth = if (cards.isNotEmpty() && totalCardsBalance > 0) totalCardsBalance else (totalIncome - totalExpense)
 
     val coroutineScope = rememberCoroutineScope()
@@ -59,7 +58,7 @@ fun HomeScreen(
     var isAiLoading by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = Color(0xFF0A0F1D), // Ultra Dark Premium Navy
+        containerColor = Color(0xFF080C14), // Ultra Deep Obsidian
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -72,8 +71,8 @@ fun HomeScreen(
                             letterSpacing = 1.sp
                         )
                         Text(
-                            "مدیریت دارایی و کارت‌های هوشمند",
-                            color = Color(0xFF94A3B8),
+                            "نسخه عیب‌یابی v3.2 • هوشمند و دقیق",
+                            color = Color(0xFF38BDF8),
                             fontSize = 11.sp
                         )
                     }
@@ -112,21 +111,21 @@ fun HomeScreen(
                     onClick = {
                         showAiAdvisorDialog = true
                         isAiLoading = true
-                        aiAdviceText = "در حال تحلیل و بررسی حساب‌ها توسط جمینای..."
+                        aiAdviceText = "در حال ارتباط با موتور هوش مصنوعی Gemini..."
                         coroutineScope.launch {
-                            val cardSummaries = cards.map { "${it.bankName} (••${it.cardNumber}): ${it.balance.toLong()} تومان" }
+                            val cardSummaries = cards.map { "${it.bankName} (${it.cardHolder}): ${it.balance.toLong()} تومان" }
                             val recentSummaries = transactions.take(6).map {
                                 "${it.title}: ${it.amount.toLong()} تومان (${if (it.isIncome) "درآمد" else "هزینه"})"
                             }
                             val fullContext = cardSummaries + recentSummaries
                             aiAdviceText = GeminiAiService.getFinancialAdvice(
-                                totalNetWorth, totalIncome, totalExpense, fullContext
+                                context, totalNetWorth, totalIncome, totalExpense, fullContext
                             )
                             isAiLoading = false
                         }
                     },
                     icon = { Icon(Icons.Default.Psychology, contentDescription = null) },
-                    text = { Text("مشاور مالی هوشمند") },
+                    text = { Text("مشاور Gemini AI") },
                     containerColor = Color(0xFF7C3AED),
                     contentColor = Color.White,
                     shape = RoundedCornerShape(16.dp)
@@ -152,7 +151,7 @@ fun HomeScreen(
         ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
-            // 1. Total Net Worth Summary Card (Glassmorphic)
+            // 1. Total Net Worth Summary Card
             item {
                 TotalNetWorthCard(
                     totalNetWorth = totalNetWorth,
@@ -199,8 +198,8 @@ fun HomeScreen(
                             Icon(Icons.Default.CreditCard, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(36.dp))
                             Spacer(modifier = Modifier.width(16.dp))
                             Column {
-                                Text("هنوز کارتی اضافه نشده!", color = Color.White, fontWeight = FontWeight.Bold)
-                                Text("پیامک‌های بانکی خودکار کارت می‌سازند یا خودت دستی بساز", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                Text("هنوز کارتی تفکیک نشده!", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("روی همگام‌سازی 🔄 بالا بزن تا پیامک‌های بانکیت تفکیک بشن", color = Color(0xFF94A3B8), fontSize = 12.sp)
                             }
                         }
                     }
@@ -232,7 +231,7 @@ fun HomeScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "ثبت لحظه‌ای ⚡",
+                        "${transactions.size} تراکنش",
                         color = Color(0xFF34D399),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
@@ -246,7 +245,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp),
+                            .height(120.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("هیچ تراکنشی هنوز ثبت نشده است", color = Color(0xFF64748B))
@@ -303,6 +302,7 @@ fun HomeScreen(
 
         if (showAiSmartEntryDialog) {
             AiSmartEntryDialog(
+                context = context,
                 onDismiss = { showAiSmartEntryDialog = false },
                 onParsed = { parsed ->
                     viewModel.addTransaction(
@@ -360,7 +360,7 @@ fun TotalNetWorthCard(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            "$cardsCount کارت متصل",
+                            "$cardsCount کارت تفکیک‌شده",
                             color = Color(0xFF10B981),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -421,7 +421,7 @@ fun TotalNetWorthCard(
 fun BankCardItem(card: BankCard, onDelete: () -> Unit) {
     val bgGradient = try {
         val baseColor = Color(android.graphics.Color.parseColor(card.cardColorHex))
-        Brush.linearGradient(listOf(baseColor, baseColor.copy(alpha = 0.6f), Color(0xFF0B111E)))
+        Brush.linearGradient(listOf(baseColor, baseColor.copy(alpha = 0.65f), Color(0xFF080C14)))
     } catch (e: Exception) {
         Brush.linearGradient(listOf(Color(0xFF1E3A8A), Color(0xFF0F172A)))
     }
@@ -462,7 +462,7 @@ fun BankCardItem(card: BankCard, onDelete: () -> Unit) {
                 }
 
                 Column {
-                    Text("موجودی کارت", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                    Text("موجودی حساب / کارت", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
                     Text(
                         "${formatAmount(card.balance)} تومان",
                         color = Color.White,
@@ -477,15 +477,15 @@ fun BankCardItem(card: BankCard, onDelete: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "•••• ${card.cardNumber}",
-                        color = Color.White.copy(alpha = 0.85f),
-                        fontSize = 14.sp,
+                        card.cardHolder,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 2.sp
+                        letterSpacing = 1.sp
                     )
                     Text(
-                        card.cardHolder,
-                        color = Color.White.copy(alpha = 0.7f),
+                        "شاپرک",
+                        color = Color.White.copy(alpha = 0.6f),
                         fontSize = 11.sp
                     )
                 }
@@ -578,13 +578,13 @@ fun LogsViewerDialog(context: android.content.Context, onDismiss: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Terminal, contentDescription = null, tint = Color(0xFF38BDF8))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("لاگ‌های سیستم و پیامک‌ها")
+                Text("لاگ‌های عیب‌یابی جامع (Deep Logs)")
             }
         },
         text = {
-            Column(modifier = Modifier.heightIn(max = 350.dp)) {
+            Column(modifier = Modifier.heightIn(max = 380.dp)) {
                 Text(
-                    "این لاگ‌ها شامل جزئیات استخراج پیامک‌های بانکی و فراخوانی‌ها است که می‌توانی خروجی بگیری و برای بررسی بفرستی:",
+                    "این لاگ شامل متن کامل پیامک‌ها، کارت‌های ساخته شده و درخواست‌های شبکه جمینای است:",
                     fontSize = 12.sp,
                     color = Color.Gray
                 )
@@ -617,7 +617,7 @@ fun LogsViewerDialog(context: android.content.Context, onDismiss: () -> Unit) {
             ) {
                 Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("اشتراک‌گذاری و ارسال لاگ")
+                Text("اشتراک‌گذاری لاگ")
             }
         },
         dismissButton = {
@@ -775,7 +775,7 @@ fun AiAdvisorDialog(isLoading: Boolean, adviceText: String, onDismiss: () -> Uni
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Psychology, contentDescription = null, tint = Color(0xFF7C3AED))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("تحلیل هوشمند وضعیت حساب‌ها (Gemini AI)")
+                Text("مشاور Gemini AI")
             }
         },
         text = {
@@ -791,7 +791,7 @@ fun AiAdvisorDialog(isLoading: Boolean, adviceText: String, onDismiss: () -> Uni
                     Text(adviceText, fontSize = 14.sp)
                 }
             } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
                     item {
                         Text(adviceText, fontSize = 14.sp, lineHeight = 24.sp, color = MaterialTheme.colorScheme.onSurface)
                     }
@@ -800,7 +800,7 @@ fun AiAdvisorDialog(isLoading: Boolean, adviceText: String, onDismiss: () -> Uni
         },
         confirmButton = {
             Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))) {
-                Text("عالی بود")
+                Text("بستن")
             }
         }
     )
@@ -809,6 +809,7 @@ fun AiAdvisorDialog(isLoading: Boolean, adviceText: String, onDismiss: () -> Uni
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiSmartEntryDialog(
+    context: android.content.Context,
     onDismiss: () -> Unit,
     onParsed: (com.example.budgetapp.ai.ParsedAiExpense) -> Unit
 ) {
@@ -854,12 +855,12 @@ fun AiSmartEntryDialog(
                         isLoading = true
                         errorMessage = ""
                         coroutineScope.launch {
-                            val parsed = GeminiAiService.parseExpenseFromText(naturalText)
+                            val parsed = GeminiAiService.parseExpenseFromText(context, naturalText)
                             isLoading = false
                             if (parsed != null) {
                                 onParsed(parsed)
                             } else {
-                                errorMessage = "نتونستم متوجه مبلغ بشم، لطفاً واضح‌تر بنویسید."
+                                errorMessage = "پاسخی دریافت نشد. لاگ‌ها را بررسی کنید."
                             }
                         }
                     }

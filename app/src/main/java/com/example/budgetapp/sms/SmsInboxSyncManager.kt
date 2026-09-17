@@ -25,8 +25,10 @@ object SmsInboxSyncManager {
         val existingSignatures = existingTransactions.map { "${it.title}_${it.amount.toLong()}" }.toSet()
 
         var importedCount = 0
+        var totalBankSmsScanned = 0
 
         try {
+            AppLogger.log(context, "INBOX_SYNC_START", "Scanning up to $maxMessages SMS from inbox...")
             val cursor = contentResolver.query(
                 uri,
                 projection,
@@ -47,8 +49,14 @@ object SmsInboxSyncManager {
 
                     val parsed = BankSmsParser.parse(body, address)
                     if (parsed != null) {
+                        totalBankSmsScanned++
                         val signature = "${parsed.description}_${parsed.amount.toLong()}"
-                        val cardKey = parsed.cardOrAccount ?: parsed.bankName
+
+                        AppLogger.log(
+                            context,
+                            "INBOX_SMS_ITEM",
+                            "Bank: ${parsed.bankName} | CardKey: ${parsed.canonicalCardKey} | Amount: ${parsed.amount} | Date: $smsDate | Body: $body"
+                        )
 
                         if (!existingSignatures.contains(signature)) {
                             val transaction = Transaction(
@@ -57,18 +65,19 @@ object SmsInboxSyncManager {
                                 category = if (parsed.isIncome) "درآمد بانکی" else "هزینه بانکی",
                                 date = smsDate,
                                 isIncome = parsed.isIncome,
-                                cardRef = cardKey
+                                cardRef = parsed.displayCardNumber
                             )
                             dao.insertTransaction(transaction)
                             importedCount++
                         }
 
-                        // Also initialize or update card if newer
-                        val existingCard = cardDao.getCardByNumber(cardKey)
+                        // Normalize card - update balance only if newer
+                        val existingCard = cardDao.getCardByNumber(parsed.canonicalCardKey)
                         if (existingCard == null || (parsed.balance != null && smsDate > existingCard.updatedAt)) {
                             val card = BankCard(
-                                cardNumber = cardKey,
+                                cardNumber = parsed.canonicalCardKey,
                                 bankName = parsed.bankName,
+                                cardHolder = "•••• ${parsed.displayCardNumber}",
                                 balance = parsed.balance ?: (if (parsed.isIncome) parsed.amount else 0.0),
                                 cardColorHex = parsed.cardColorHex,
                                 updatedAt = smsDate
@@ -78,9 +87,13 @@ object SmsInboxSyncManager {
                     }
                 }
             }
-            AppLogger.log(context, "INBOX_SYNC", "Successfully scanned inbox. Newly imported: $importedCount")
+            AppLogger.log(
+                context,
+                "INBOX_SYNC_COMPLETE",
+                "Finished scanning. Bank SMS found: $totalBankSmsScanned | Newly imported: $importedCount"
+            )
         } catch (e: Exception) {
-            AppLogger.log(context, "INBOX_SYNC_ERROR", "Error scanning SMS inbox: ${e.message}")
+            AppLogger.log(context, "INBOX_SYNC_ERR", "Error reading SMS inbox: ${e.message}", e)
         }
 
         importedCount

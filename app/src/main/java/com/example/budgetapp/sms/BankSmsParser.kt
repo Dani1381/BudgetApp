@@ -2,12 +2,13 @@ package com.example.budgetapp.sms
 
 data class ParsedBankSms(
     val bankName: String,
+    val canonicalCardKey: String, // Normalized unique ID for the card (e.g. "BLU_5022", "MELLI_6037", "SAMAN_DEFAULT")
+    val displayCardNumber: String, // e.g. "5022" or "اصلی"
     val amount: Double,
     val isIncome: Boolean,
     val balance: Double? = null,
-    val cardOrAccount: String? = null,
     val description: String,
-    val cardColorHex: String = "#1E293B"
+    val cardColorHex: String
 )
 
 object BankSmsParser {
@@ -15,62 +16,68 @@ object BankSmsParser {
     fun parse(smsBody: String, sender: String = ""): ParsedBankSms? {
         val cleanBody = smsBody.replace("،", "").replace(",", "").trim()
 
-        // 1. Identify Bank Name & Accent Colors
-        val (bankName, colorHex) = when {
-            cleanBody.contains("بلوبانک") || cleanBody.contains("بلو") || sender.contains("blubank", ignoreCase = true) -> 
-                Pair("بلو بانک (Saman)", "#0284C7") // Blu Electric Blue
+        // 1. Bank Identification & Themes
+        val (bankName, defaultColor, bankTag) = when {
+            cleanBody.contains("بلوبانک") || cleanBody.contains("بلو بانک") || cleanBody.contains("بلو") || sender.contains("blubank", ignoreCase = true) -> 
+                Triple("بلو بانک", "#0284C7", "BLUBANK")
             cleanBody.contains("بانک ملی") || sender.contains("Melli", ignoreCase = true) -> 
-                Pair("بانک ملی", "#B45309") // Melli Warm Amber
+                Triple("بانک ملی", "#B45309", "MELLI")
             cleanBody.contains("بانک ملت") || sender.contains("Mellat", ignoreCase = true) -> 
-                Pair("بانک ملت", "#DC2626") // Mellat Crimson
+                Triple("بانک ملت", "#DC2626", "MELLAT")
             cleanBody.contains("سامان") || sender.contains("Saman", ignoreCase = true) -> 
-                Pair("بانک سامان", "#0D9488") // Saman Teal
+                Triple("بانک سامان", "#0D9488", "SAMAN")
             cleanBody.contains("پاسارگاد") || sender.contains("Pasargad", ignoreCase = true) -> 
-                Pair("بانک پاسارگاد", "#D97706") // Pasargad Gold
+                Triple("بانک پاسارگاد", "#D97706", "PASARGAD")
             cleanBody.contains("رسالت") -> 
-                Pair("بانک رسالت", "#059669") // Resalat Emerald
+                Triple("بانک رسالت", "#059669", "RESALAT")
             cleanBody.contains("سپه") -> 
-                Pair("بانک سپه", "#3B82F6") // Sepah Blue
+                Triple("بانک سپه", "#3B82F6", "SEPAH")
             cleanBody.contains("تجارت") -> 
-                Pair("بانک تجارت", "#4F46E5") // Tejarat Indigo
+                Triple("بانک تجارت", "#4F46E5", "TEJARAT")
             cleanBody.contains("صادرات") -> 
-                Pair("بانک صادرات", "#7C3AED") // Saderat Purple
+                Triple("بانک صادرات", "#7C3AED", "SADERAT")
             cleanBody.contains("پارسیان") -> 
-                Pair("بانک پارسیان", "#9333EA") // Parsian Violet
+                Triple("بانک پارسیان", "#9333EA", "PARSIAN")
             cleanBody.contains("کشاورزی") -> 
-                Pair("بانک کشاورزی", "#16A34A") // Keshavarzi Green
+                Triple("بانک کشاورزی", "#16A34A", "KESHAVARZI")
             cleanBody.contains("مسکن") -> 
-                Pair("بانک مسکن", "#EA580C") // Maskan Orange
+                Triple("بانک مسکن", "#EA580C", "MASKAN")
             cleanBody.contains("شهر") -> 
-                Pair("بانک شهر", "#E11D48") // Shahr Rose
+                Triple("بانک شهر", "#E11D48", "SHAHR")
             cleanBody.contains("رفاه") -> 
-                Pair("بانک رفاه", "#2563EB") // Refah Royal Blue
+                Triple("بانک رفاه", "#2563EB", "REFAH")
             cleanBody.contains("آینده") -> 
-                Pair("بانک آینده", "#991B1B") // Ayandeh Maroon
-            cleanBody.contains("بانک") || cleanBody.contains("واریز") || cleanBody.contains("برداشت") -> 
-                Pair("کارت بانکی", "#334155")
+                Triple("بانک آینده", "#991B1B", "AYANDEH")
+            cleanBody.contains("واریز") || cleanBody.contains("برداشت") || cleanBody.contains("مانده") -> 
+                Triple("کارت بانکی", "#334155", "GENERIC")
             else -> return null
         }
 
-        // 2. Identify Transaction Type (Income vs Expense)
+        // 2. Transaction Type
         val isIncome = when {
             cleanBody.contains("واریز") || cleanBody.contains("+") || cleanBody.contains("انتقال از") -> true
             cleanBody.contains("برداشت") || cleanBody.contains("خرید") || cleanBody.contains("-") || cleanBody.contains("انتقال به") -> false
             else -> false
         }
 
-        // 3. Extract Amount (Rials or Tomans)
+        // 3. Amount Extraction (Rials or Tomans)
         val amountRegex = Regex("""(?:مبلغ|واریز|برداشت|خرید|پایا|ساتنا)?[:\s\+\-]*([0-9]{4,13})\s*(?:ریال|تومان)?""")
         val match = amountRegex.find(cleanBody)
         val rawAmount = match?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
         val amountInTomans = if (cleanBody.contains("تومان")) rawAmount else (rawAmount / 10.0)
 
-        // 4. Extract Card or Account Number if exists
-        val cardRegex = Regex("""(?:\*|کارت|حساب)?\s*([0-9]{4})\s*(?:\*|:)?""")
+        // 4. Exact Card Number (4 digits) or Account Normalization
+        val cardRegex = Regex("""(?:\*|کارت|حساب)?\s*([0-9]{4})\s*(?:\*|:|به|از)?""")
         val cardMatch = cardRegex.find(cleanBody)
-        val card = cardMatch?.groupValues?.get(1) ?: (bankName.split(" ").lastOrNull() ?: "عمومی")
+        val cardDigits = cardMatch?.groupValues?.get(1)
 
-        // 5. Extract Card Balance if provided in SMS (e.g. موجودی: 12500000)
+        val (canonicalKey, displayNum) = if (cardDigits != null) {
+            Pair("${bankTag}_$cardDigits", cardDigits)
+        } else {
+            Pair("${bankTag}_MAIN", "اصلی")
+        }
+
+        // 5. Card Balance (e.g. موجودی: 12500000)
         val balanceRegex = Regex("""(?:موجودی|مانده)[:\s]*([0-9]{4,13})\s*(?:ریال|تومان)?""")
         val balanceMatch = balanceRegex.find(cleanBody)
         val rawBalance = balanceMatch?.groupValues?.get(1)?.toDoubleOrNull()
@@ -81,17 +88,18 @@ object BankSmsParser {
         val desc = buildString {
             append(if (isIncome) "واریز " else "خرید/برداشت ")
             append(bankName)
-            if (card.matches(Regex("[0-9]{4}"))) append(" ••$card")
+            if (cardDigits != null) append(" (••$cardDigits)")
         }
 
         return ParsedBankSms(
             bankName = bankName,
+            canonicalCardKey = canonicalKey,
+            displayCardNumber = displayNum,
             amount = amountInTomans,
             isIncome = isIncome,
             balance = balanceInTomans,
-            cardOrAccount = card,
             description = desc,
-            cardColorHex = colorHex
+            cardColorHex = defaultColor
         )
     }
 }

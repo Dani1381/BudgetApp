@@ -2,22 +2,37 @@ package com.example.budgetapp.logger
 
 import android.content.Context
 import android.content.Intent
-import androidx.core.content.FileProvider
 import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 object AppLogger {
 
-    private const val LOG_FILE_NAME = "budget_app_debug_logs.txt"
+    private const val LOG_FILE_NAME = "budget_app_full_diagnostics.txt"
+    private const val MAX_LOG_SIZE_BYTES = 500 * 1024 // 500 KB cap
 
-    fun log(context: Context, tag: String, message: String) {
+    @Synchronized
+    fun log(context: Context, tag: String, message: String, throwable: Throwable? = null) {
         try {
             val file = File(context.filesDir, LOG_FILE_NAME)
-            val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-            val logLine = "[$time] [$tag] $message\n"
-            file.appendText(logLine)
+            if (file.exists() && file.length() > MAX_LOG_SIZE_BYTES) {
+                // Keep the last 100KB to avoid file bloat
+                val lines = file.readLines()
+                file.writeText(lines.takeLast(300).joinToString("\n") + "\n")
+            }
+
+            val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
+            val sb = StringBuilder()
+            sb.append("[$time] [$tag] $message\n")
+            if (throwable != null) {
+                val sw = StringWriter()
+                throwable.printStackTrace(PrintWriter(sw))
+                sb.append(">>> EXCEPTION: ").append(sw.toString()).append("\n")
+            }
+            file.appendText(sb.toString())
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -26,7 +41,7 @@ object AppLogger {
     fun getLogs(context: Context): String {
         return try {
             val file = File(context.filesDir, LOG_FILE_NAME)
-            if (file.exists()) file.readText() else "هیچ لاگی هنوز ثبت نشده است."
+            if (file.exists()) file.readText() else "هنوز لاگی ثبت نشده است."
         } catch (e: Exception) {
             "خطا در خواندن فایل لاگ: ${e.message}"
         }
@@ -46,10 +61,10 @@ object AppLogger {
             val logText = getLogs(context)
             val sendIntent = Intent().apply {
                 action = Intent.ACTION_SEND
-                putExtra(Intent.EXTRA_TEXT, "--- BudgetApp Diagnostic Logs ---\n\n$logText")
+                putExtra(Intent.EXTRA_TEXT, "=== BUDGETAPP DEEP DIAGNOSTIC LOGS ===\n\n$logText")
                 type = "text/plain"
             }
-            val shareIntent = Intent.createChooser(sendIntent, "ارسال و بررسی لاگ‌های برنامه")
+            val shareIntent = Intent.createChooser(sendIntent, "ارسال لاگ عیب‌یابی به تلگرام")
             shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(shareIntent)
         } catch (e: Exception) {

@@ -22,11 +22,11 @@ class BankSmsReceiver : BroadcastReceiver() {
                 val body = sms.displayMessageBody ?: continue
                 val sender = sms.displayOriginatingAddress ?: ""
 
-                AppLogger.log(context, "SMS_RAW", "From: $sender | Body: $body")
+                AppLogger.log(context, "SMS_INCOMING", "From: $sender | Length: ${body.length}\n$body")
 
                 val parsed = BankSmsParser.parse(body, sender)
                 if (parsed != null) {
-                    AppLogger.log(context, "SMS_PARSED", "Bank: ${parsed.bankName}, Amount: ${parsed.amount}, Card: ${parsed.cardOrAccount}, Balance: ${parsed.balance}")
+                    AppLogger.log(context, "SMS_PARSED", "Bank: ${parsed.bankName}, Key: ${parsed.canonicalCardKey}, Amount: ${parsed.amount}, Bal: ${parsed.balance}")
 
                     val db = AppDatabase.getDatabase(context)
                     val dao = db.transactionDao()
@@ -34,34 +34,35 @@ class BankSmsReceiver : BroadcastReceiver() {
 
                     CoroutineScope(Dispatchers.IO).launch {
                         // 1. Insert Transaction
-                        val cardKey = parsed.cardOrAccount ?: parsed.bankName
                         val transaction = Transaction(
                             title = parsed.description,
                             amount = parsed.amount,
                             category = if (parsed.isIncome) "درآمد بانکی" else "هزینه بانکی",
                             date = System.currentTimeMillis(),
                             isIncome = parsed.isIncome,
-                            cardRef = cardKey
+                            cardRef = parsed.displayCardNumber
                         )
                         dao.insertTransaction(transaction)
 
-                        // 2. Update or create the BankCard with its live balance
-                        val existingCard = cardDao.getCardByNumber(cardKey)
+                        // 2. Update/Create normalized BankCard
+                        val existingCard = cardDao.getCardByNumber(parsed.canonicalCardKey)
                         val updatedBalance = if (parsed.balance != null) {
                             parsed.balance
                         } else {
-                            val current = existingCard?.balance ?: 0.0
-                            if (parsed.isIncome) current + parsed.amount else current - parsed.amount
+                            val cur = existingCard?.balance ?: 0.0
+                            if (parsed.isIncome) cur + parsed.amount else cur - parsed.amount
                         }
 
                         val card = BankCard(
-                            cardNumber = cardKey,
+                            cardNumber = parsed.canonicalCardKey,
                             bankName = parsed.bankName,
+                            cardHolder = "•••• ${parsed.displayCardNumber}",
                             balance = updatedBalance,
                             cardColorHex = parsed.cardColorHex,
                             updatedAt = System.currentTimeMillis()
                         )
                         cardDao.insertOrUpdateCard(card)
+                        AppLogger.log(context, "CARD_UPDATED", "Card ${parsed.canonicalCardKey} balance updated to: $updatedBalance")
                     }
 
                     val typeStr = if (parsed.isIncome) "واریز" else "برداشت"
@@ -71,6 +72,8 @@ class BankSmsReceiver : BroadcastReceiver() {
                         "💳 $typeStr $amountStr تومان • ${parsed.bankName}",
                         Toast.LENGTH_LONG
                     ).show()
+                } else {
+                    AppLogger.log(context, "SMS_IGNORED", "Not recognized as bank SMS: $body")
                 }
             }
         }

@@ -1,5 +1,7 @@
 package com.example.budgetapp.ai
 
+import android.content.Context
+import com.example.budgetapp.logger.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -12,7 +14,7 @@ import java.net.URL
 
 object GeminiAiService {
 
-    // Pool of working Gemini API Keys with auto-rotation
+    // Valid Gemini API Keys with rotation
     private val API_KEYS = listOf(
         "AIzaSy...Jn58",
         "AQ.Ab8RN6Lny38qgQj6x5Y3c1w1K7A4GVRwg",
@@ -29,45 +31,40 @@ object GeminiAiService {
         return key
     }
 
-    /**
-     * Ask Gemini to analyze the user's financial spending and provide advice in Persian
-     */
     suspend fun getFinancialAdvice(
+        context: Context,
         balance: Double,
         income: Double,
         expense: Double,
         recentTransactions: List<String>
     ): String = withContext(Dispatchers.IO) {
         val prompt = buildString {
-            append("تو یک مشاور مالی فوق‌العاده باهوش، دلسوز و صمیمی به زبان فارسی هستی.\n")
-            append("وضعیت مالی کاربر:\n")
-            append("- موجودی فعلی: ${balance.toLong()} تومان\n")
+            append("تو یک مشاور مالی شخصی بسیار باهوش و دلسوز به زبان فارسی هستی.\n")
+            append("اطلاعات حساب کاربر:\n")
+            append("- مجموع موجودی: ${balance.toLong()} تومان\n")
             append("- مجموع درآمدها: ${income.toLong()} تومان\n")
-            append("- مجموع هزینه‌ها: ${expense.toLong()} تومان\n")
-            append("- آخرین تراکنش‌های کاربر:\n")
+            append("- مجموع مخارج: ${expense.toLong()} تومان\n")
+            append("- تراکنش‌ها و حساب‌ها:\n")
             recentTransactions.take(8).forEach { append("  • $it\n") }
-            append("\nلطفاً در حداکثر ۲ یا ۳ پاراگراف کوتاه، وضعیت خرج‌کرد کاربر رو ارزیابی کن و ۱ یا ۲ راهکار خیلی خلاقانه و کاربردی برای پس‌انداز و کنترل هزینه‌ها بهش پیشنهاد بده.")
+            append("\nلطفاً در ۲ پاراگراف کوتاه وضعیت مالی را بررسی کن و ۲ توصیه کاربردی و هوشمندانه بده.")
         }
 
-        callGemini(prompt)
+        callGemini(context, prompt)
     }
 
-    /**
-     * Parse messy natural Persian text into a structured Transaction JSON
-     */
-    suspend fun parseExpenseFromText(userInput: String): ParsedAiExpense? = withContext(Dispatchers.IO) {
+    suspend fun parseExpenseFromText(context: Context, userInput: String): ParsedAiExpense? = withContext(Dispatchers.IO) {
         val prompt = """
-            این متن کاربر درباره یک تراکنش مالی است: "$userInput"
-            لطفاً اطلاعات آن را به دقت استخراج کن و فقط و فقط یک JSON با فرمت زیر تحویل بده (بدون هیچ توضیح اضافه یا مارک‌داون):
+            متن تراکنش کاربر: "$userInput"
+            فقط و فقط یک JSON با کلیدهای زیر برگردان:
             {
-              "title": "عنوان خلاصه تراکنش",
+              "title": "عنوان تراکنش",
               "amount": مبلغ به تومان به صورت عدد,
-              "category": "دسته‌بندی مثلا خوراک، کرایه، خرید، تفریح یا عمومی",
-              "isIncome": false یا true
+              "category": "دسته‌بندی",
+              "isIncome": true یا false
             }
         """.trimIndent()
 
-        val response = callGemini(prompt)
+        val response = callGemini(context, prompt)
         try {
             val cleanJson = response.substringAfter("{").substringBeforeLast("}")
             val fullJson = "{$cleanJson}"
@@ -79,53 +76,71 @@ object GeminiAiService {
                 isIncome = obj.getBoolean("isIncome")
             )
         } catch (e: Exception) {
+            AppLogger.log(context, "GEMINI_PARSE_ERR", "Failed parsing JSON from Gemini response: $response", e)
             null
         }
     }
 
-    private fun callGemini(userPrompt: String): String {
-        for (attempt in 0 until API_KEYS.size) {
-            val key = getNextKey()
-            try {
-                val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=$key"
-                val url = URL(endpoint)
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                conn.connectTimeout = 15000
-                conn.readTimeout = 15000
+    private fun callGemini(context: Context, userPrompt: String): String {
+        var lastError = ""
 
-                val payload = JSONObject().apply {
-                    val partsArray = JSONArray().put(JSONObject().put("text", userPrompt))
-                    val contentsArray = JSONArray().put(JSONObject().put("parts", partsArray))
-                    put("contents", contentsArray)
-                }
+        // Test with v1beta gemini-3.6-flash and fallback to gemini-2.5-flash
+        val models = listOf("gemini-3.6-flash", "gemini-2.5-flash", "gemini-flash-latest")
 
-                OutputStreamWriter(conn.outputStream).use { writer ->
-                    writer.write(payload.toString())
-                    writer.flush()
-                }
+        for (model in models) {
+            for (key in API_KEYS) {
+                try {
+                    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key"
+                    AppLogger.log(context, "GEMINI_REQ", "Calling model: $model with key: ${key.take(8)}...")
 
-                val responseCode = conn.responseCode
-                if (responseCode == HttpURLConnection.HTTP_OK) {
-                    val response = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
-                    val jsonResponse = JSONObject(response)
-                    val candidates = jsonResponse.getJSONArray("candidates")
-                    if (candidates.length() > 0) {
-                        val firstCandidate = candidates.getJSONObject(0)
-                        val content = firstCandidate.getJSONObject("content")
-                        val parts = content.getJSONArray("parts")
-                        if (parts.length() > 0) {
-                            return parts.getJSONObject(0).getString("text")
-                        }
+                    val url = URL(endpoint)
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.doOutput = true
+                    conn.connectTimeout = 12000
+                    conn.readTimeout = 12000
+
+                    val payload = JSONObject().apply {
+                        val partsArray = JSONArray().put(JSONObject().put("text", userPrompt))
+                        val contentsArray = JSONArray().put(JSONObject().put("parts", partsArray))
+                        put("contents", contentsArray)
                     }
+
+                    OutputStreamWriter(conn.outputStream).use { writer ->
+                        writer.write(payload.toString())
+                        writer.flush()
+                    }
+
+                    val code = conn.responseCode
+                    if (code == HttpURLConnection.HTTP_OK) {
+                        val response = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                        val jsonResponse = JSONObject(response)
+                        val candidates = jsonResponse.getJSONArray("candidates")
+                        if (candidates.length() > 0) {
+                            val text = candidates.getJSONObject(0)
+                                .getJSONObject("content")
+                                .getJSONArray("parts")
+                                .getJSONObject(0)
+                                .getString("text")
+                            AppLogger.log(context, "GEMINI_SUCCESS", "Model $model responded (${text.length} chars)")
+                            return text
+                        }
+                    } else {
+                        val errResponse = try {
+                            BufferedReader(InputStreamReader(conn.errorStream)).use { it.readText() }
+                        } catch (e: Exception) { "No error body" }
+                        lastError = "HTTP $code from $model: $errResponse"
+                        AppLogger.log(context, "GEMINI_HTTP_ERR", lastError)
+                    }
+                } catch (e: Exception) {
+                    lastError = "Network/DNS Error: ${e.message}"
+                    AppLogger.log(context, "GEMINI_NET_ERR", "Model $model connection error", e)
                 }
-            } catch (e: Exception) {
-                // Try next key on failure
             }
         }
-        return "خطا در ارتباط با هوش مصنوعی. لطفاً اتصال اینترنت خود را بررسی کنید."
+
+        return "خطا در برقراری ارتباط با Gemini AI ($lastError). لاگ‌های برنامه را برای مشاهده جزئیات بررسی کنید."
     }
 }
 

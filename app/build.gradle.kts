@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.budgetapp"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "3.0-LuxuryCards"
+        versionCode = 5
+        versionName = "3.2-DeepDiagnostics"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
