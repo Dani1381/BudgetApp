@@ -2,19 +2,16 @@ package com.example.budgetapp.sms
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Telephony
 import com.example.budgetapp.data.AppDatabase
+import com.example.budgetapp.data.BankCard
 import com.example.budgetapp.data.Transaction
+import com.example.budgetapp.logger.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 object SmsInboxSyncManager {
 
-    /**
-     * Reads existing bank SMS messages from the inbox and imports any unimported transactions.
-     * Returns the count of newly imported transactions.
-     */
     suspend fun syncHistoricalBankSms(context: Context, maxMessages: Int = 100): Int = withContext(Dispatchers.IO) {
         val contentResolver = context.contentResolver
         val uri = Uri.parse("content://sms/inbox")
@@ -22,8 +19,8 @@ object SmsInboxSyncManager {
 
         val db = AppDatabase.getDatabase(context)
         val dao = db.transactionDao()
+        val cardDao = db.bankCardDao()
 
-        // Fetch existing transaction titles & dates to avoid duplicating transactions
         val existingTransactions = dao.getAllTransactions().first()
         val existingSignatures = existingTransactions.map { "${it.title}_${it.amount.toLong()}" }.toSet()
 
@@ -51,22 +48,39 @@ object SmsInboxSyncManager {
                     val parsed = BankSmsParser.parse(body, address)
                     if (parsed != null) {
                         val signature = "${parsed.description}_${parsed.amount.toLong()}"
+                        val cardKey = parsed.cardOrAccount ?: parsed.bankName
+
                         if (!existingSignatures.contains(signature)) {
                             val transaction = Transaction(
                                 title = parsed.description,
                                 amount = parsed.amount,
                                 category = if (parsed.isIncome) "درآمد بانکی" else "هزینه بانکی",
                                 date = smsDate,
-                                isIncome = parsed.isIncome
+                                isIncome = parsed.isIncome,
+                                cardRef = cardKey
                             )
                             dao.insertTransaction(transaction)
                             importedCount++
                         }
+
+                        // Also initialize or update card if newer
+                        val existingCard = cardDao.getCardByNumber(cardKey)
+                        if (existingCard == null || (parsed.balance != null && smsDate > existingCard.updatedAt)) {
+                            val card = BankCard(
+                                cardNumber = cardKey,
+                                bankName = parsed.bankName,
+                                balance = parsed.balance ?: (if (parsed.isIncome) parsed.amount else 0.0),
+                                cardColorHex = parsed.cardColorHex,
+                                updatedAt = smsDate
+                            )
+                            cardDao.insertOrUpdateCard(card)
+                        }
                     }
                 }
             }
+            AppLogger.log(context, "INBOX_SYNC", "Successfully scanned inbox. Newly imported: $importedCount")
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.log(context, "INBOX_SYNC_ERROR", "Error scanning SMS inbox: ${e.message}")
         }
 
         importedCount

@@ -9,6 +9,7 @@ data class Transaction(
     val title: String,
     val amount: Double,
     val category: String,
-    val date: Long, // Store as timestamp
-    val isIncome: Boolean
+    val date: Long, // timestamp
+    val isIncome: Boolean,
+    val cardRef: String = "" // e.g. "5022" or "بلو بانک"
 )
