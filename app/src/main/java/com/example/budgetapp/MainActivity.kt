@@ -12,10 +12,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.budgetapp.sms.SmsInboxSyncManager
 import com.example.budgetapp.ui.HomeScreen
 import com.example.budgetapp.ui.theme.BudgetAppTheme
 import com.example.budgetapp.viewmodel.BudgetViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -24,7 +27,8 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val granted = permissions.entries.all { it.value }
         if (granted) {
-            Toast.makeText(this, "✅ مجوز خواندن پیامک بانکی فعال شد!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "✅ مجوز دسترسی پیامک فعال شد! در حال خواندن پیامک‌های بانکی...", Toast.LENGTH_SHORT).show()
+            triggerInboxSync()
         } else {
             Toast.makeText(this, "برای ثبت خودکار تراکنش‌ها، نیاز به دسترسی پیامک است", Toast.LENGTH_LONG).show()
         }
@@ -42,7 +46,10 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val viewModel: BudgetViewModel = viewModel()
-                    HomeScreen(viewModel = viewModel)
+                    HomeScreen(
+                        viewModel = viewModel,
+                        onSyncSmsRequested = { triggerInboxSync() }
+                    )
                 }
             }
         }
@@ -58,6 +65,22 @@ class MainActivity : ComponentActivity() {
         }
         if (missing.isNotEmpty()) {
             requestSmsPermissionLauncher.launch(missing.toTypedArray())
+        } else {
+            // Permissions already granted, sync inbox immediately on startup
+            triggerInboxSync()
+        }
+    }
+
+    private fun triggerInboxSync() {
+        lifecycleScope.launch {
+            val imported = SmsInboxSyncManager.syncHistoricalBankSms(this@MainActivity)
+            if (imported > 0) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "🎉 $imported تراکنش از پیامک‌های قبلی بانکی خوانده و اضافه شد!",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 }

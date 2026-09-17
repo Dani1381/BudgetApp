@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,7 +29,10 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: BudgetViewModel) {
+fun HomeScreen(
+    viewModel: BudgetViewModel,
+    onSyncSmsRequested: () -> Unit = {}
+) {
     val transactions by viewModel.transactions.collectAsState()
     val totalIncome by viewModel.totalIncome.collectAsState()
     val totalExpense by viewModel.totalExpense.collectAsState()
@@ -47,6 +51,13 @@ fun HomeScreen(viewModel: BudgetViewModel) {
             TopAppBar(
                 title = { Text("مدیریت بودجه هوشمند") },
                 actions = {
+                    IconButton(onClick = onSyncSmsRequested) {
+                        Icon(
+                            Icons.Default.Sync,
+                            contentDescription = "همگام‌سازی پیامک‌ها",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                     IconButton(onClick = { showAiSmartEntryDialog = true }) {
                         Icon(
                             Icons.Default.AutoAwesome,
